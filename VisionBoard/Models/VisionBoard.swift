@@ -11,14 +11,12 @@ final class VisionBoard {
     var backgroundColor: String // hex
     var backgroundGradientEnd: String? // hex
     var backgroundImageData: Data?
-    var aspectRatio: AspectRatio
     @Relationship(deleteRule: .cascade) var items: [BoardItem]
     @Relationship(deleteRule: .cascade) var goals: [Goal]
 
     init(
         title: String = "我的愿景板",
-        category: BoardCategory = .general,
-        aspectRatio: AspectRatio = .square
+        category: BoardCategory = .general
     ) {
         self.title = title
         self.category = category
@@ -27,7 +25,6 @@ final class VisionBoard {
         self.backgroundType = .gradient
         self.backgroundColor = "#FDFBF9"
         self.backgroundGradientEnd = "#E8D5E8"
-        self.aspectRatio = aspectRatio
         self.items = []
         self.goals = []
     }

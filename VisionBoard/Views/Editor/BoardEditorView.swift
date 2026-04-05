@@ -9,9 +9,11 @@ struct BoardEditorView: View {
     @State private var showingPhotoPicker = false
     @State private var showingTextInput = false
     @State private var showingStickerPicker = false
+    @State private var showingBoardSettings = false
     @State private var photoSelection: PhotosPickerItem?
-    @State private var dragOffset: CGSize = .zero
-    @State private var activeItemId: String?
+    // Track drag start position for correct delta calculation
+    @State private var dragStartX: Double = 0
+    @State private var dragStartY: Double = 0
 
     var body: some View {
         NavigationStack {
@@ -19,28 +21,39 @@ struct BoardEditorView: View {
                 Color.black.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // Canvas
                     canvasView
                         .padding(AppSpacing.md)
 
-                    // Toolbar
                     editorToolbar
+                }
+
+                // Empty board hint overlay
+                if board.items.isEmpty {
+                    emptyBoardHint
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        showingBoardSettings = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .foregroundStyle(.white)
+                    }
+                }
+                ToolbarItem(placement: .principal) {
+                    Text(board.title)
+                        .foregroundStyle(.white)
+                        .font(AppFont.titleSmall)
+                }
+                ToolbarItem(placement: .confirmationAction) {
                     Button("完成") {
                         board.updatedAt = Date()
                         dismiss()
                     }
                     .foregroundStyle(.white)
                     .fontWeight(.semibold)
-                }
-                ToolbarItem(placement: .principal) {
-                    Text(board.title)
-                        .foregroundStyle(.white)
-                        .font(AppFont.titleSmall)
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
@@ -62,15 +75,40 @@ struct BoardEditorView: View {
                     addStickerItem(name: stickerName)
                 }
             }
+            .sheet(isPresented: $showingBoardSettings) {
+                BoardSettingsSheet(board: board)
+            }
         }
     }
 
+    // MARK: - Empty Board Hint
+
+    private var emptyBoardHint: some View {
+        VStack(spacing: AppSpacing.md) {
+            Image(systemName: "hand.tap.fill")
+                .font(.system(size: 36))
+                .foregroundStyle(AppColor.primary)
+
+            Text("点击下方工具栏开始创作")
+                .font(AppFont.bodyMedium)
+                .foregroundStyle(.white.opacity(0.8))
+
+            Text("添加照片、文字或贴纸来打造你的愿景板")
+                .font(AppFont.bodySmall)
+                .foregroundStyle(.white.opacity(0.5))
+        }
+        .allowsHitTesting(false) // Let taps pass through to toolbar
+    }
+
+    // MARK: - Canvas
+
     private var canvasView: some View {
         GeometryReader { geo in
-            let size = canvasSize(in: geo.size)
+            // Canvas is always square for editing; export ratio chosen at share time
+            let side = min(geo.size.width, geo.size.height)
+            let size = CGSize(width: side, height: side)
 
             ZStack {
-                // Background
                 RoundedRectangle(cornerRadius: AppRadius.lg)
                     .fill(
                         LinearGradient(
@@ -82,7 +120,6 @@ struct BoardEditorView: View {
                     )
                     .frame(width: size.width, height: size.height)
 
-                // Items
                 ForEach(board.items.sorted(by: { $0.zIndex < $1.zIndex })) { item in
                     itemView(item: item, canvasSize: size)
                 }
@@ -90,17 +127,13 @@ struct BoardEditorView: View {
             .frame(width: size.width, height: size.height)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onTapGesture {
+                // Deselect when tapping canvas background
+                withAnimation(AppAnimation.fast) {
+                    selectedItem = nil
+                }
+            }
         }
-    }
-
-    private func canvasSize(in containerSize: CGSize) -> CGSize {
-        let maxWidth = containerSize.width
-        let maxHeight = containerSize.height
-        let ratio = board.aspectRatio.value
-
-        let width = min(maxWidth, maxHeight * ratio)
-        let height = width / ratio
-        return CGSize(width: width, height: min(height, maxHeight))
     }
 
     @ViewBuilder
@@ -130,20 +163,31 @@ struct BoardEditorView: View {
             .gesture(
                 DragGesture()
                     .onChanged { value in
-                        item.x = max(0.05, min(0.95, item.x + value.translation.width / canvasSize.width))
-                        item.y = max(0.05, min(0.95, item.y + value.translation.height / canvasSize.height))
+                        if dragStartX == 0 && dragStartY == 0 {
+                            // Store position at drag start
+                            dragStartX = item.x
+                            dragStartY = item.y
+                        }
+                        // Use absolute translation from start, not incremental
+                        item.x = max(0.05, min(0.95, dragStartX + value.translation.width / canvasSize.width))
+                        item.y = max(0.05, min(0.95, dragStartY + value.translation.height / canvasSize.height))
+                        selectedItem = item
+                    }
+                    .onEnded { _ in
+                        dragStartX = 0
+                        dragStartY = 0
                     }
             )
     }
 
+    // MARK: - Toolbar
+
     private var editorToolbar: some View {
         VStack(spacing: 0) {
-            // Selected item actions
             if selectedItem != nil {
                 selectedItemActions
             }
 
-            // Main tools
             HStack(spacing: AppSpacing.xxl) {
                 toolButton(icon: "photo.fill", label: "图片") {
                     showingPhotoPicker = true
@@ -177,8 +221,8 @@ struct BoardEditorView: View {
 
             Button {
                 if let item = selectedItem {
-                    item.width = min(0.9, item.width * 1.1)
-                    item.height = min(0.9, item.height * 1.1)
+                    item.width = min(0.9, item.width * 1.15)
+                    item.height = min(0.9, item.height * 1.15)
                 }
             } label: {
                 Label("放大", systemImage: "plus.magnifyingglass")
@@ -187,8 +231,8 @@ struct BoardEditorView: View {
 
             Button {
                 if let item = selectedItem {
-                    item.width = max(0.05, item.width * 0.9)
-                    item.height = max(0.05, item.height * 0.9)
+                    item.width = max(0.05, item.width * 0.85)
+                    item.height = max(0.05, item.height * 0.85)
                 }
             } label: {
                 Label("缩小", systemImage: "minus.magnifyingglass")
@@ -228,6 +272,7 @@ struct BoardEditorView: View {
         let item = BoardItem(itemType: .image, zIndex: board.items.count)
         item.imageData = data
         board.items.append(item)
+        selectedItem = item
     }
 
     private func addTextItem(text: String, color: String) {
@@ -236,6 +281,7 @@ struct BoardEditorView: View {
         item.textColor = color
         item.fontSize = 24
         board.items.append(item)
+        selectedItem = item
     }
 
     private func addStickerItem(name: String) {
@@ -244,6 +290,7 @@ struct BoardEditorView: View {
         item.fontSize = 40
         item.textColor = "#C8A2C8"
         board.items.append(item)
+        selectedItem = item
     }
 
     private func cycleBackground() {
@@ -257,8 +304,84 @@ struct BoardEditorView: View {
         ]
         let current = gradients.firstIndex { $0.0 == board.backgroundColor } ?? -1
         let next = (current + 1) % gradients.count
-        board.backgroundColor = gradients[next].0
-        board.backgroundGradientEnd = gradients[next].1
+        withAnimation(AppAnimation.standard) {
+            board.backgroundColor = gradients[next].0
+            board.backgroundGradientEnd = gradients[next].1
+        }
+    }
+}
+
+// MARK: - Board Settings Sheet (title, category)
+
+struct BoardSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var board: VisionBoard
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AppColor.bgPrimary.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: AppSpacing.xl) {
+                        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                            Text("名称")
+                                .font(AppFont.titleSmall)
+                                .foregroundStyle(AppColor.textPrimary)
+                            TextField("愿景板名称", text: $board.title)
+                                .font(AppFont.bodyLarge)
+                                .padding(AppSpacing.sm)
+                                .background(AppColor.bgSecondary)
+                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+                        }
+
+                        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                            Text("分类")
+                                .font(AppFont.titleSmall)
+                                .foregroundStyle(AppColor.textPrimary)
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: AppSpacing.xs) {
+                                ForEach(BoardCategory.allCases, id: \.self) { cat in
+                                    Button {
+                                        board.category = cat
+                                    } label: {
+                                        VStack(spacing: 4) {
+                                            Image(systemName: cat.icon)
+                                                .font(.title3)
+                                            Text(cat.rawValue)
+                                                .font(AppFont.caption1)
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, AppSpacing.sm)
+                                        .background(
+                                            board.category == cat ? cat.color.opacity(0.15) : AppColor.bgSecondary
+                                        )
+                                        .foregroundStyle(
+                                            board.category == cat ? cat.color : AppColor.textSecondary
+                                        )
+                                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: AppRadius.sm)
+                                                .stroke(board.category == cat ? cat.color : .clear, lineWidth: 1.5)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .padding(AppSpacing.lg)
+                }
+            }
+            .navigationTitle("愿景板设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                        .fontWeight(.semibold)
+                        .tint(AppColor.primary)
+                }
+            }
+        }
     }
 }
 
@@ -267,20 +390,20 @@ struct BoardEditorView: View {
 struct TextInputSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
-    @State private var selectedColor = "#2C2C2E"
+    @State private var selectedColor = "#FFFFFF"
     var onAdd: (String, String) -> Void
 
-    private let colors = ["#2C2C2E", "#FFFFFF", "#C8A2C8", "#E8B5BC",
+    private let colors = ["#FFFFFF", "#2C2C2E", "#C8A2C8", "#E8B5BC",
                           "#A3D9C2", "#F7C59F", "#93B7E3", "#D87B7B"]
 
     var body: some View {
         NavigationStack {
             VStack(spacing: AppSpacing.xl) {
-                TextField("输入文字", text: $text, axis: .vertical)
+                TextField("写下你的目标或肯定语", text: $text, axis: .vertical)
                     .font(AppFont.titleLarge)
                     .foregroundStyle(Color(hex: selectedColor))
                     .padding()
-                    .background(AppColor.bgSecondary)
+                    .background(Color(hex: "#2C2C2E"))
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                     .lineLimit(1...5)
 
@@ -291,7 +414,10 @@ struct TextInputSheet: View {
                             .frame(width: 32, height: 32)
                             .overlay(
                                 Circle()
-                                    .stroke(selectedColor == color ? AppColor.primary : .clear, lineWidth: 2)
+                                    .stroke(
+                                        selectedColor == color ? AppColor.primary : Color.gray.opacity(0.3),
+                                        lineWidth: selectedColor == color ? 2.5 : 1
+                                    )
                                     .padding(-2)
                             )
                             .onTapGesture { selectedColor = color }

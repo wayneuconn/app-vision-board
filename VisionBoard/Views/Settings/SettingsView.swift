@@ -1,6 +1,10 @@
 import SwiftUI
+import StoreKit
 
 struct SettingsView: View {
+    @State private var showingPaywall = false
+    @State private var store = StoreKitManager.shared
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -8,46 +12,47 @@ struct SettingsView: View {
 
                 List {
                     // Premium
-                    Section {
-                        Button {
-                            // TODO: show paywall
-                        } label: {
+                    if !store.isPro {
+                        Section {
+                            Button {
+                                showingPaywall = true
+                            } label: {
+                                HStack(spacing: AppSpacing.md) {
+                                    Image(systemName: "crown.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(AppColor.warm)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("升级 PRO")
+                                            .font(AppFont.titleSmall)
+                                            .foregroundStyle(AppColor.textPrimary)
+                                        Text("解锁无限愿景板、全部模板和更多功能")
+                                            .font(AppFont.bodySmall)
+                                            .foregroundStyle(AppColor.textSecondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .foregroundStyle(AppColor.textTertiary)
+                                }
+                                .padding(.vertical, AppSpacing.xs)
+                            }
+                        }
+                    } else {
+                        Section {
                             HStack(spacing: AppSpacing.md) {
                                 Image(systemName: "crown.fill")
                                     .font(.title2)
                                     .foregroundStyle(AppColor.warm)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("升级 PRO")
-                                        .font(AppFont.titleSmall)
-                                        .foregroundStyle(AppColor.textPrimary)
-                                    Text("解锁无限愿景板、全部模板和更多功能")
-                                        .font(AppFont.bodySmall)
-                                        .foregroundStyle(AppColor.textSecondary)
-                                }
+                                Text("PRO 会员")
+                                    .font(AppFont.titleSmall)
+                                    .foregroundStyle(AppColor.textPrimary)
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .foregroundStyle(AppColor.textTertiary)
+                                Text("已激活")
+                                    .font(AppFont.bodySmall)
+                                    .foregroundStyle(AppColor.success)
                             }
-                            .padding(.vertical, AppSpacing.xs)
                         }
                     }
 
-                    // General
-                    Section("通用") {
-                        NavigationLink {
-                            Text("通知设置")
-                        } label: {
-                            Label("提醒设置", systemImage: "bell.fill")
-                        }
-
-                        NavigationLink {
-                            Text("外观设置")
-                        } label: {
-                            Label("外观", systemImage: "paintbrush.fill")
-                        }
-                    }
-
-                    // About
                     Section("关于") {
                         HStack {
                             Label("版本", systemImage: "info.circle")
@@ -65,13 +70,12 @@ struct SettingsView: View {
                         }
 
                         Button {
-                            // TODO: restore purchases
+                            Task { await store.restorePurchases() }
                         } label: {
                             Label("恢复购买", systemImage: "arrow.clockwise")
                         }
                     }
 
-                    // Feedback
                     Section {
                         Button {
                             let email = "wayneuconn@gmail.com"
@@ -96,8 +100,9 @@ struct SettingsView: View {
                 .scrollContentBackground(.hidden)
             }
             .navigationTitle("设置")
+            .fullScreenCover(isPresented: $showingPaywall) {
+                PaywallView()
+            }
         }
     }
 }
-
-import StoreKit

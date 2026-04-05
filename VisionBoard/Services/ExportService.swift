@@ -7,26 +7,19 @@ struct ExportService {
             content: ExportableBoardView(board: board)
                 .frame(width: size.width, height: size.height)
         )
-        renderer.scale = 3.0 // 3x for high quality
+        renderer.scale = 3.0
         return renderer.uiImage
     }
 
     @MainActor
-    static func shareBoard(_ board: VisionBoard, from view: UIView?) {
-        let size: CGSize
-        switch board.aspectRatio {
-        case .square:
-            size = CGSize(width: 1080, height: 1080)
-        case .portrait:
-            size = CGSize(width: 1080, height: 1920)
-        }
-
+    static func shareBoard(_ board: VisionBoard, size: CGSize, from view: UIView?) {
         guard let image = renderBoardImage(board: board, size: size) else { return }
 
-        let watermarkedImage = addWatermark(to: image, appName: "愿景板 App")
+        let isPro = StoreKitManager.shared.isPro
+        let finalImage = isPro ? image : addWatermark(to: image, appName: "愿景板")
 
         let activityVC = UIActivityViewController(
-            activityItems: [watermarkedImage],
+            activityItems: [finalImage],
             applicationActivities: nil
         )
 
@@ -43,7 +36,7 @@ struct ExportService {
 
     static func addWatermark(to image: UIImage, appName: String) -> UIImage {
         let renderer = UIGraphicsImageRenderer(size: image.size)
-        return renderer.image { context in
+        return renderer.image { _ in
             image.draw(at: .zero)
 
             let text = "用 \(appName) 制作"
@@ -62,8 +55,6 @@ struct ExportService {
     }
 }
 
-// MARK: - Exportable View
-
 struct ExportableBoardView: View {
     let board: VisionBoard
 
@@ -77,6 +68,7 @@ struct ExportableBoardView: View {
                     endPoint: .bottomTrailing
                 )
 
+                // Render items — use square mapping (items stored in 0-1 normalized coords)
                 ForEach(board.items.sorted(by: { $0.zIndex < $1.zIndex })) { item in
                     BoardItemView(item: item, canvasSize: geo.size)
                 }

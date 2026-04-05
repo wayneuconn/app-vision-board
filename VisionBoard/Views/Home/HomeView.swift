@@ -5,6 +5,7 @@ struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \VisionBoard.updatedAt, order: .reverse) private var boards: [VisionBoard]
     @State private var showingNewBoard = false
+    @State private var boardToEdit: VisionBoard?
 
     var body: some View {
         NavigationStack {
@@ -21,7 +22,7 @@ struct HomeView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        showingNewBoard = true
+                        createAndOpenBoard()
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .font(.title3)
@@ -29,12 +30,16 @@ struct HomeView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingNewBoard) {
-                NewBoardSheet { board in
-                    modelContext.insert(board)
-                }
+            .fullScreenCover(item: $boardToEdit) { board in
+                BoardEditorView(board: board)
             }
         }
+    }
+
+    private func createAndOpenBoard() {
+        let board = VisionBoard()
+        modelContext.insert(board)
+        boardToEdit = board
     }
 
     private var emptyState: some View {
@@ -52,7 +57,7 @@ struct HomeView: View {
                 .foregroundStyle(AppColor.textSecondary)
 
             Button("创建第一个愿景板") {
-                showingNewBoard = true
+                createAndOpenBoard()
             }
             .buttonStyle(PrimaryButtonStyle())
             .padding(.horizontal, AppSpacing.xxxl)
@@ -73,6 +78,19 @@ struct HomeView: View {
                         BoardCardView(board: board)
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        Button {
+                            boardToEdit = board
+                        } label: {
+                            Label("编辑", systemImage: "pencil")
+                        }
+
+                        Button(role: .destructive) {
+                            modelContext.delete(board)
+                        } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                    }
                 }
             }
             .padding(.horizontal, AppSpacing.lg)
@@ -88,7 +106,7 @@ struct BoardCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            // Preview
+            // Preview — always square in list
             RoundedRectangle(cornerRadius: AppRadius.sm)
                 .fill(
                     LinearGradient(
@@ -113,7 +131,6 @@ struct BoardCardView: View {
                     }
                 }
 
-            // Title & meta
             Text(board.title)
                 .font(AppFont.titleSmall)
                 .foregroundStyle(AppColor.textPrimary)
@@ -135,11 +152,10 @@ struct BoardCardView: View {
 
     @ViewBuilder
     private var boardPreview: some View {
-        // Show thumbnails of images on the board
         let imageItems = board.items.filter { $0.itemType == .image && $0.imageData != nil }.prefix(4)
         if !imageItems.isEmpty {
             GeometryReader { geo in
-                ForEach(Array(imageItems.enumerated()), id: \.element.id) { index, item in
+                ForEach(Array(imageItems.enumerated()), id: \.element.id) { _, item in
                     if let data = item.imageData, let uiImage = UIImage(data: data) {
                         Image(uiImage: uiImage)
                             .resizable()
@@ -157,129 +173,6 @@ struct BoardCardView: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-        }
-    }
-}
-
-// MARK: - New Board Sheet
-
-struct NewBoardSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var category: BoardCategory = .general
-    @State private var aspectRatio: AspectRatio = .square
-    var onCreate: (VisionBoard) -> Void
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                AppColor.bgPrimary.ignoresSafeArea()
-
-                ScrollView {
-                    VStack(spacing: AppSpacing.xl) {
-                        // Title
-                        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                            Text("愿景板名称")
-                                .font(AppFont.titleSmall)
-                                .foregroundStyle(AppColor.textPrimary)
-                            TextField("给你的愿景板起个名字", text: $title)
-                                .font(AppFont.bodyLarge)
-                                .padding(AppSpacing.sm)
-                                .background(AppColor.bgSecondary)
-                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-                        }
-
-                        // Category
-                        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                            Text("分类")
-                                .font(AppFont.titleSmall)
-                                .foregroundStyle(AppColor.textPrimary)
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: AppSpacing.xs) {
-                                ForEach(BoardCategory.allCases, id: \.self) { cat in
-                                    Button {
-                                        category = cat
-                                    } label: {
-                                        VStack(spacing: 4) {
-                                            Image(systemName: cat.icon)
-                                                .font(.title3)
-                                            Text(cat.rawValue)
-                                                .font(AppFont.caption1)
-                                        }
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, AppSpacing.sm)
-                                        .background(
-                                            category == cat ? cat.color.opacity(0.15) : AppColor.bgSecondary
-                                        )
-                                        .foregroundStyle(
-                                            category == cat ? cat.color : AppColor.textSecondary
-                                        )
-                                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: AppRadius.sm)
-                                                .stroke(category == cat ? cat.color : .clear, lineWidth: 1.5)
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-
-                        // Aspect ratio
-                        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                            Text("比例")
-                                .font(AppFont.titleSmall)
-                                .foregroundStyle(AppColor.textPrimary)
-                            HStack(spacing: AppSpacing.sm) {
-                                ForEach(AspectRatio.allCases, id: \.self) { ratio in
-                                    Button {
-                                        aspectRatio = ratio
-                                    } label: {
-                                        VStack(spacing: 4) {
-                                            RoundedRectangle(cornerRadius: 4)
-                                                .stroke(
-                                                    aspectRatio == ratio ? AppColor.primary : AppColor.textTertiary,
-                                                    lineWidth: 1.5
-                                                )
-                                                .aspectRatio(ratio.value, contentMode: .fit)
-                                                .frame(height: 40)
-                                            Text(ratio.displayName)
-                                                .font(AppFont.caption1)
-                                        }
-                                        .frame(maxWidth: .infinity)
-                                        .padding(AppSpacing.sm)
-                                        .background(
-                                            aspectRatio == ratio ? AppColor.primaryLight.opacity(0.3) : AppColor.bgSecondary
-                                        )
-                                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-                    .padding(AppSpacing.lg)
-                }
-            }
-            .navigationTitle("新建愿景板")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("创建") {
-                        let board = VisionBoard(
-                            title: title.isEmpty ? "我的愿景板" : title,
-                            category: category,
-                            aspectRatio: aspectRatio
-                        )
-                        onCreate(board)
-                        dismiss()
-                    }
-                    .fontWeight(.semibold)
-                    .tint(AppColor.primary)
-                }
-            }
         }
     }
 }

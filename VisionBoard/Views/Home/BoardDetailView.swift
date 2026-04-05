@@ -2,9 +2,11 @@ import SwiftUI
 import SwiftData
 
 struct BoardDetailView: View {
+    @Environment(\.modelContext) private var modelContext
     @Bindable var board: VisionBoard
     @State private var showingEditor = false
     @State private var showingGoalSheet = false
+    @State private var showingShareOptions = false
 
     var body: some View {
         ZStack {
@@ -12,11 +14,10 @@ struct BoardDetailView: View {
 
             ScrollView {
                 VStack(spacing: AppSpacing.xl) {
-                    // Board preview
                     boardCanvas
                         .onTapGesture { showingEditor = true }
 
-                    // Quick actions
+                    // Actions
                     HStack(spacing: AppSpacing.sm) {
                         Button {
                             showingEditor = true
@@ -26,7 +27,7 @@ struct BoardDetailView: View {
                         .buttonStyle(PrimaryButtonStyle())
 
                         Button {
-                            // TODO: export
+                            showingShareOptions = true
                         } label: {
                             Label("分享", systemImage: "square.and.arrow.up")
                         }
@@ -34,7 +35,6 @@ struct BoardDetailView: View {
                     }
                     .padding(.horizontal, AppSpacing.lg)
 
-                    // Goals section
                     goalsSection
                 }
                 .padding(.bottom, AppSpacing.xxxl)
@@ -42,21 +42,63 @@ struct BoardDetailView: View {
         }
         .navigationTitle(board.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        showingEditor = true
+                    } label: {
+                        Label("编辑愿景板", systemImage: "pencil")
+                    }
+                    Button {
+                        showingShareOptions = true
+                    } label: {
+                        Label("分享", systemImage: "square.and.arrow.up")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        modelContext.delete(board)
+                    } label: {
+                        Label("删除", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
         .fullScreenCover(isPresented: $showingEditor) {
             BoardEditorView(board: board)
         }
         .sheet(isPresented: $showingGoalSheet) {
             AddGoalSheet(board: board)
         }
+        .confirmationDialog("选择分享格式", isPresented: $showingShareOptions) {
+            Button("方形 (1:1) — 适合小红书") {
+                shareBoard(ratio: .square)
+            }
+            Button("全屏 (9:16) — 适合壁纸/抖音") {
+                shareBoard(ratio: .portrait)
+            }
+            Button("取消", role: .cancel) {}
+        }
     }
 
+    private func shareBoard(ratio: AspectRatio) {
+        let size: CGSize
+        switch ratio {
+        case .square: size = CGSize(width: 1080, height: 1080)
+        case .portrait: size = CGSize(width: 1080, height: 1920)
+        }
+        ExportService.shareBoard(board, size: size, from: nil)
+    }
+
+    // Canvas — always square in detail view
     private var boardCanvas: some View {
         GeometryReader { geo in
             let width = geo.size.width - AppSpacing.lg * 2
-            let height = width / board.aspectRatio.value
+            let size = CGSize(width: width, height: width) // Always square
 
             ZStack {
-                // Background
                 RoundedRectangle(cornerRadius: AppRadius.lg)
                     .fill(
                         LinearGradient(
@@ -67,9 +109,8 @@ struct BoardDetailView: View {
                         )
                     )
 
-                // Items
                 ForEach(board.items.sorted(by: { $0.zIndex < $1.zIndex })) { item in
-                    BoardItemView(item: item, canvasSize: CGSize(width: width, height: height))
+                    BoardItemView(item: item, canvasSize: size)
                 }
 
                 if board.items.isEmpty {
@@ -82,14 +123,16 @@ struct BoardDetailView: View {
                     .foregroundStyle(.white.opacity(0.6))
                 }
             }
-            .frame(width: width, height: min(height, 500))
+            .frame(width: width, height: width)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
             .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: 4)
             .frame(maxWidth: .infinity)
         }
-        .frame(height: min((UIScreen.main.bounds.width - AppSpacing.lg * 2) / board.aspectRatio.value, 500))
+        .frame(height: UIScreen.main.bounds.width - AppSpacing.lg * 2)
         .padding(.horizontal, AppSpacing.lg)
     }
+
+    // MARK: - Goals
 
     private var goalsSection: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
@@ -183,11 +226,7 @@ struct GoalRowView: View {
                 Button {
                     withAnimation(AppAnimation.springGentle) {
                         goal.isCompleted.toggle()
-                        if goal.isCompleted {
-                            goal.completedAt = Date()
-                        } else {
-                            goal.completedAt = nil
-                        }
+                        goal.completedAt = goal.isCompleted ? Date() : nil
                     }
                 } label: {
                     Image(systemName: goal.isCompleted ? "checkmark.circle.fill" : "circle")
