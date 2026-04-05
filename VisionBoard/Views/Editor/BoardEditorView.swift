@@ -8,7 +8,6 @@ struct BoardEditorView: View {
     @State private var editingText = ""
     @State private var activePhotoSlotId: Int?
     @State private var photoSelection: PhotosPickerItem?
-    @State private var showingColorPicker = false
 
     private let gradients: [(String, String, String)] = [
         ("#FDFBF9", "#E8D5E8", "浅紫"),
@@ -24,28 +23,21 @@ struct BoardEditorView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Warm background instead of black
                 AppColor.bgSecondary.ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    // Canvas
-                    ScrollView {
-                        VStack(spacing: AppSpacing.lg) {
-                            // Board canvas
-                            boardCanvas
-                                .padding(.horizontal, AppSpacing.md)
-                                .padding(.top, AppSpacing.sm)
+                ScrollView {
+                    VStack(spacing: AppSpacing.lg) {
+                        boardCanvas
+                            .padding(.horizontal, AppSpacing.md)
+                            .padding(.top, AppSpacing.sm)
 
-                            // Color picker
-                            colorPicker
-                                .padding(.horizontal, AppSpacing.lg)
+                        colorPicker
+                            .padding(.horizontal, AppSpacing.lg)
 
-                            // Hint
-                            Text("点击照片区域添加图片，点击文字直接编辑")
-                                .font(AppFont.caption1)
-                                .foregroundStyle(AppColor.textTertiary)
-                                .padding(.bottom, AppSpacing.xl)
-                        }
+                        Text("点击照片区域添加图片，点击文字直接编辑")
+                            .font(AppFont.caption1)
+                            .foregroundStyle(AppColor.textTertiary)
+                            .padding(.bottom, AppSpacing.xl)
                     }
                 }
             }
@@ -98,14 +90,13 @@ struct BoardEditorView: View {
         }
     }
 
-    // MARK: - Canvas
+    // MARK: - Canvas (uses overlay-based layout instead of .position())
 
     private var boardCanvas: some View {
         GeometryReader { geo in
             let side = geo.size.width
-            let size = CGSize(width: side, height: side)
 
-            ZStack {
+            ZStack(alignment: .topLeading) {
                 // Background
                 RoundedRectangle(cornerRadius: AppRadius.xl)
                     .fill(
@@ -118,14 +109,27 @@ struct BoardEditorView: View {
                     )
 
                 if let template = board.template {
-                    // Photo slots
+                    // Photo slots — using offset + frame instead of .position()
                     ForEach(template.slots) { slot in
-                        photoSlotView(slot: slot, canvasSize: size)
+                        photoSlotButton(slot: slot, canvasSize: side)
+                            .frame(
+                                width: side * slot.width,
+                                height: side * slot.height
+                            )
+                            .offset(
+                                x: side * slot.x,
+                                y: side * slot.y
+                            )
                     }
 
                     // Text slots
                     ForEach(template.textSlots) { slot in
-                        textSlotView(slot: slot, canvasSize: size)
+                        textSlotButton(slot: slot, canvasSize: side)
+                            .frame(width: side * slot.width)
+                            .offset(
+                                x: side * (slot.x - slot.width / 2),
+                                y: side * slot.y
+                            )
                     }
                 }
             }
@@ -136,40 +140,32 @@ struct BoardEditorView: View {
         .aspectRatio(1, contentMode: .fit)
     }
 
-    // MARK: - Photo Slot
+    // MARK: - Photo Slot Button
 
-    private func photoSlotView(slot: TemplateSlot, canvasSize: CGSize) -> some View {
+    private func photoSlotButton(slot: TemplateSlot, canvasSize: CGFloat) -> some View {
         let hasPhoto = board.photoData(forSlot: slot.id) != nil
-        let scaledRadius = slot.cornerRadius * (canvasSize.width / 400)
+        let scaledRadius = slot.cornerRadius * (canvasSize / 400)
 
         return Button {
             activePhotoSlotId = slot.id
         } label: {
-            Group {
+            ZStack {
                 if let data = board.photoData(forSlot: slot.id),
                    let uiImage = UIImage(data: data) {
                     Image(uiImage: uiImage)
                         .resizable()
                         .scaledToFill()
                 } else {
-                    // Empty placeholder
-                    ZStack {
-                        Color.white.opacity(0.2)
-
-                        VStack(spacing: 6) {
-                            Image(systemName: "plus.circle")
-                                .font(.system(size: canvasSize.width * 0.05))
-                            Text(slot.placeholder)
-                                .font(.system(size: max(canvasSize.width * 0.028, 10)))
-                        }
-                        .foregroundStyle(.white.opacity(0.7))
+                    Color.white.opacity(0.2)
+                    VStack(spacing: 6) {
+                        Image(systemName: "plus.circle")
+                            .font(.system(size: canvasSize * 0.05))
+                        Text(slot.placeholder)
+                            .font(.system(size: max(canvasSize * 0.028, 10)))
                     }
+                    .foregroundStyle(.white.opacity(0.7))
                 }
             }
-            .frame(
-                width: canvasSize.width * slot.width,
-                height: canvasSize.height * slot.height
-            )
             .clipShape(RoundedRectangle(cornerRadius: scaledRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: scaledRadius)
@@ -180,19 +176,15 @@ struct BoardEditorView: View {
             )
         }
         .buttonStyle(.plain)
-        .position(
-            x: canvasSize.width * (slot.x + slot.width / 2),
-            y: canvasSize.height * (slot.y + slot.height / 2)
-        )
     }
 
-    // MARK: - Text Slot
+    // MARK: - Text Slot Button
 
-    private func textSlotView(slot: TemplateTextSlot, canvasSize: CGSize) -> some View {
+    private func textSlotButton(slot: TemplateTextSlot, canvasSize: CGFloat) -> some View {
         let content = board.textContent(forSlot: slot.id)
         let displayText = content ?? slot.placeholder
         let isPlaceholder = content == nil
-        let scaledFontSize = slot.fontSize * (canvasSize.width / 400)
+        let scaledFontSize = slot.fontSize * (canvasSize / 400)
 
         return Button {
             editingText = content ?? ""
@@ -205,14 +197,9 @@ struct BoardEditorView: View {
                         .opacity(isPlaceholder ? 0.5 : 1.0)
                 )
                 .multilineTextAlignment(slot.alignment)
-                .frame(width: canvasSize.width * slot.width)
                 .lineLimit(3)
         }
         .buttonStyle(.plain)
-        .position(
-            x: canvasSize.width * slot.x,
-            y: canvasSize.height * slot.y
-        )
     }
 
     // MARK: - Color Picker
@@ -260,8 +247,6 @@ struct BoardEditorView: View {
             }
         }
     }
-
-    // MARK: - Helpers
 
     private func saveText() {
         if let slotId = editingTextSlotId, !editingText.isEmpty {

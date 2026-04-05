@@ -5,10 +5,9 @@ struct TemplateBoardRenderer: View {
 
     var body: some View {
         GeometryReader { geo in
-            let size = geo.size
+            let side = min(geo.size.width, geo.size.height)
 
-            ZStack {
-                // Background
+            ZStack(alignment: .topLeading) {
                 LinearGradient(
                     colors: [Color(hex: board.backgroundColor),
                              Color(hex: board.backgroundGradientEnd ?? board.backgroundColor)],
@@ -17,22 +16,25 @@ struct TemplateBoardRenderer: View {
                 )
 
                 if let template = board.template {
-                    // Photo slots
                     ForEach(template.slots) { slot in
-                        photoView(slot: slot, canvasSize: size)
+                        photoView(slot: slot, side: side)
+                            .frame(width: side * slot.width, height: side * slot.height)
+                            .offset(x: side * slot.x, y: side * slot.y)
                     }
 
-                    // Text slots
                     ForEach(template.textSlots) { slot in
-                        textView(slot: slot, canvasSize: size)
+                        textView(slot: slot, side: side)
+                            .frame(width: side * slot.width)
+                            .offset(x: side * (slot.x - slot.width / 2), y: side * slot.y)
                     }
                 }
             }
+            .frame(width: side, height: side)
         }
     }
 
-    private func photoView(slot: TemplateSlot, canvasSize: CGSize) -> some View {
-        let scaledRadius = slot.cornerRadius * (canvasSize.width / 400)
+    private func photoView(slot: TemplateSlot, side: CGFloat) -> some View {
+        let scaledRadius = slot.cornerRadius * (side / 400)
 
         return Group {
             if let data = board.photoData(forSlot: slot.id),
@@ -41,44 +43,29 @@ struct TemplateBoardRenderer: View {
                     .resizable()
                     .scaledToFill()
             } else {
-                // Empty slot in preview — subtle placeholder
                 Color.white.opacity(0.15)
                     .overlay(
                         Image(systemName: "photo")
-                            .font(.system(size: canvasSize.width * 0.04))
+                            .font(.system(size: side * 0.04))
                             .foregroundStyle(.white.opacity(0.3))
                     )
             }
         }
-        .frame(
-            width: canvasSize.width * slot.width,
-            height: canvasSize.height * slot.height
-        )
         .clipShape(RoundedRectangle(cornerRadius: scaledRadius))
-        .position(
-            x: canvasSize.width * (slot.x + slot.width / 2),
-            y: canvasSize.height * (slot.y + slot.height / 2)
-        )
     }
 
-    private func textView(slot: TemplateTextSlot, canvasSize: CGSize) -> some View {
+    private func textView(slot: TemplateTextSlot, side: CGFloat) -> some View {
         let content = board.textContent(forSlot: slot.id)
         let displayText = content ?? slot.placeholder
         let isPlaceholder = content == nil
-        let scaledFontSize = slot.fontSize * (canvasSize.width / 400)
+        let scaledFontSize = slot.fontSize * (side / 400)
 
         return Text(displayText)
             .font(.system(size: scaledFontSize, weight: slot.fontWeight))
             .foregroundStyle(
-                Color(hex: slot.defaultColor)
-                    .opacity(isPlaceholder ? 0.4 : 1.0)
+                Color(hex: slot.defaultColor).opacity(isPlaceholder ? 0.4 : 1.0)
             )
             .multilineTextAlignment(slot.alignment)
-            .frame(width: canvasSize.width * slot.width)
             .lineLimit(3)
-            .position(
-                x: canvasSize.width * slot.x,
-                y: canvasSize.height * slot.y
-            )
     }
 }

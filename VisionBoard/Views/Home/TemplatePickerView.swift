@@ -148,8 +148,9 @@ struct TemplatePreviewView: View {
 
     var body: some View {
         GeometryReader { geo in
-            ZStack {
-                // Background gradient
+            let side = min(geo.size.width, geo.size.height)
+
+            ZStack(alignment: .topLeading) {
                 LinearGradient(
                     colors: [Color(hex: template.previewGradient.0),
                              Color(hex: template.previewGradient.1)],
@@ -157,42 +158,32 @@ struct TemplatePreviewView: View {
                     endPoint: .bottomTrailing
                 )
 
-                // Photo slot placeholders
                 ForEach(template.slots) { slot in
-                    RoundedRectangle(cornerRadius: slot.cornerRadius * (geo.size.width / 400))
+                    RoundedRectangle(cornerRadius: slot.cornerRadius * (side / 400))
                         .fill(.white.opacity(0.25))
                         .overlay(
-                            RoundedRectangle(cornerRadius: slot.cornerRadius * (geo.size.width / 400))
+                            RoundedRectangle(cornerRadius: slot.cornerRadius * (side / 400))
                                 .strokeBorder(.white.opacity(0.3), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
                         )
                         .overlay(
                             Image(systemName: "photo")
-                                .font(.system(size: geo.size.width * 0.06))
+                                .font(.system(size: side * 0.06))
                                 .foregroundStyle(.white.opacity(0.5))
                         )
-                        .frame(
-                            width: geo.size.width * slot.width,
-                            height: geo.size.height * slot.height
-                        )
-                        .position(
-                            x: geo.size.width * (slot.x + slot.width / 2),
-                            y: geo.size.height * (slot.y + slot.height / 2)
-                        )
+                        .frame(width: side * slot.width, height: side * slot.height)
+                        .offset(x: side * slot.x, y: side * slot.y)
                 }
 
-                // Text slot placeholders
                 ForEach(template.textSlots) { slot in
                     Text(slot.placeholder)
-                        .font(.system(size: slot.fontSize * (geo.size.width / 400), weight: slot.fontWeight))
+                        .font(.system(size: slot.fontSize * (side / 400), weight: slot.fontWeight))
                         .foregroundStyle(Color(hex: slot.defaultColor).opacity(0.7))
                         .multilineTextAlignment(slot.alignment)
-                        .frame(width: geo.size.width * slot.width)
-                        .position(
-                            x: geo.size.width * slot.x,
-                            y: geo.size.height * slot.y
-                        )
+                        .frame(width: side * slot.width)
+                        .offset(x: side * (slot.x - slot.width / 2), y: side * slot.y)
                 }
             }
+            .frame(width: side, height: side)
         }
     }
 }
