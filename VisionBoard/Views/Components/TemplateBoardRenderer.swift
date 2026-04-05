@@ -19,13 +19,17 @@ struct TemplateBoardRenderer: View {
                     ForEach(template.slots) { slot in
                         photoView(slot: slot, side: side)
                             .frame(width: side * slot.width, height: side * slot.height)
-                            .offset(x: side * slot.x, y: side * slot.y)
+                            .padding(.leading, side * slot.x)
+                            .padding(.top, side * slot.y)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     }
 
                     ForEach(template.textSlots) { slot in
                         textView(slot: slot, side: side)
                             .frame(width: side * slot.width)
-                            .offset(x: side * (slot.x - slot.width / 2), y: side * slot.y)
+                            .padding(.leading, side * (slot.x - slot.width / 2))
+                            .padding(.top, side * slot.y - slot.fontSize * (side / 400) / 2)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     }
                 }
             }
@@ -36,12 +40,14 @@ struct TemplateBoardRenderer: View {
     private func photoView(slot: TemplateSlot, side: CGFloat) -> some View {
         let scaledRadius = slot.cornerRadius * (side / 400)
 
-        return Group {
+        return ZStack {
             if let data = board.photoData(forSlot: slot.id),
                let uiImage = UIImage(data: data) {
                 Image(uiImage: uiImage)
                     .resizable()
                     .scaledToFill()
+                    .frame(width: side * slot.width, height: side * slot.height)
+                    .clipped()
             } else {
                 Color.white.opacity(0.15)
                     .overlay(
@@ -59,12 +65,14 @@ struct TemplateBoardRenderer: View {
         let displayText = content ?? slot.placeholder
         let isPlaceholder = content == nil
         let scaledFontSize = slot.fontSize * (side / 400)
+        let textColor = board.adaptiveTextColor
 
         return Text(displayText)
             .font(.system(size: scaledFontSize, weight: slot.fontWeight))
             .foregroundStyle(
-                Color(hex: slot.defaultColor).opacity(isPlaceholder ? 0.4 : 1.0)
+                Color(hex: textColor).opacity(isPlaceholder ? 0.4 : 1.0)
             )
+            .shadow(color: .black.opacity(board.isBackgroundLight ? 0 : 0.3), radius: 2, x: 0, y: 1)
             .multilineTextAlignment(slot.alignment)
             .lineLimit(3)
     }

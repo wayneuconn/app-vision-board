@@ -175,9 +175,11 @@ struct TemplatePreviewView: View {
                 }
 
                 ForEach(template.textSlots) { slot in
+                    let isLight = HexColor.isLight(template.previewGradient.0)
+                    let color = isLight ? "#2C2C2E" : "#FFFFFF"
                     Text(slot.placeholder)
                         .font(.system(size: slot.fontSize * (side / 400), weight: slot.fontWeight))
-                        .foregroundStyle(Color(hex: slot.defaultColor).opacity(0.7))
+                        .foregroundStyle(Color(hex: color).opacity(0.7))
                         .multilineTextAlignment(slot.alignment)
                         .frame(width: side * slot.width)
                         .offset(x: side * (slot.x - slot.width / 2), y: side * slot.y)

@@ -3,9 +3,9 @@ import SwiftData
 
 struct JournalView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \VisionBoard.updatedAt, order: .reverse) private var boards: [VisionBoard]
     @Query(sort: \JournalEntry.date, order: .reverse) private var entries: [JournalEntry]
     @State private var showingEditor = false
-    @State private var selectedEntry: JournalEntry?
 
     private var todayEntry: JournalEntry? {
         let today = Calendar.current.startOfDay(for: Date())
@@ -16,7 +16,6 @@ struct JournalView: View {
         var streak = 0
         let calendar = Calendar.current
         var checkDate = calendar.startOfDay(for: Date())
-
         for entry in entries {
             let entryDate = calendar.startOfDay(for: entry.date)
             if entryDate == checkDate && entry.hasContent {
@@ -36,8 +35,13 @@ struct JournalView: View {
 
                 ScrollView {
                     VStack(spacing: AppSpacing.xl) {
-                        // Today's card
-                        todayCard
+                        // My vision boards summary
+                        if !boards.isEmpty {
+                            boardsSummary
+                        }
+
+                        // Daily check-in
+                        dailyCheckIn
 
                         // Streak
                         if streakDays > 0 {
@@ -45,71 +49,88 @@ struct JournalView: View {
                         }
 
                         // Past entries
-                        if !entries.isEmpty {
-                            pastEntries
+                        if entries.count > 1 || (entries.count == 1 && todayEntry == nil) {
+                            pastSection
                         }
                     }
                     .padding(.horizontal, AppSpacing.lg)
-                    .padding(.top, AppSpacing.sm)
+                    .padding(.top, AppSpacing.xs)
+                    .padding(.bottom, AppSpacing.xxxl)
                 }
             }
-            .navigationTitle("显化日记")
+            .navigationTitle("今日")
             .sheet(isPresented: $showingEditor) {
-                if let entry = selectedEntry {
-                    JournalEditorSheet(entry: entry)
+                JournalEditorSheet(entry: getOrCreateTodayEntry())
+            }
+        }
+    }
+
+    // MARK: - Boards Summary
+
+    private var boardsSummary: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            Text("我的愿景")
+                .font(AppFont.titleSmall)
+                .foregroundStyle(AppColor.textPrimary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: AppSpacing.sm) {
+                    ForEach(boards.prefix(5)) { board in
+                        VStack(spacing: AppSpacing.xxs) {
+                            TemplateBoardRenderer(board: board)
+                                .frame(width: 80, height: 80)
+                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+
+                            Text(board.title)
+                                .font(AppFont.caption2)
+                                .foregroundStyle(AppColor.textSecondary)
+                                .lineLimit(1)
+                        }
+                        .frame(width: 80)
+                    }
                 }
             }
         }
     }
 
-    private var todayCard: some View {
+    // MARK: - Daily Check-in
+
+    private var dailyCheckIn: some View {
         VStack(spacing: AppSpacing.md) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("今天")
-                        .font(AppFont.titleLarge)
+                    Text(Date().formatted(.dateTime.month(.wide).day().weekday(.wide)))
+                        .font(AppFont.titleMedium)
                         .foregroundStyle(AppColor.textPrimary)
-                    Text(Date().formatted(.dateTime.month(.wide).day()))
+                    Text("今天过得怎么样？")
                         .font(AppFont.bodySmall)
                         .foregroundStyle(AppColor.textSecondary)
                 }
                 Spacer()
-
                 if let entry = todayEntry, entry.hasContent {
                     Text(entry.mood.emoji)
-                        .font(.title)
+                        .font(.largeTitle)
                 }
             }
 
             if let entry = todayEntry, entry.hasContent {
+                // Show today's entry
                 VStack(alignment: .leading, spacing: AppSpacing.xs) {
                     if !entry.gratitude1.isEmpty {
-                        gratitudeRow(number: 1, text: entry.gratitude1)
+                        checkInRow("今天感恩", entry.gratitude1)
                     }
-                    if !entry.gratitude2.isEmpty {
-                        gratitudeRow(number: 2, text: entry.gratitude2)
-                    }
-                    if !entry.gratitude3.isEmpty {
-                        gratitudeRow(number: 3, text: entry.gratitude3)
+                    if !entry.todayProgress.isEmpty {
+                        checkInRow("目标进展", entry.todayProgress)
                     }
                 }
 
-                Button("编辑今日日记") {
-                    selectedEntry = entry
+                Button("编辑今日记录") {
                     showingEditor = true
                 }
                 .buttonStyle(SecondaryButtonStyle())
             } else {
-                Text("记录今天的感恩与进展，让显化更有力量 ✨")
-                    .font(AppFont.bodyMedium)
-                    .foregroundStyle(AppColor.textSecondary)
-
-                Button("写今日日记") {
-                    let entry = todayEntry ?? JournalEntry()
-                    if todayEntry == nil {
-                        modelContext.insert(entry)
-                    }
-                    selectedEntry = entry
+                // Prompt to write
+                Button("记录今天") {
                     showingEditor = true
                 }
                 .buttonStyle(PrimaryButtonStyle())
@@ -118,23 +139,24 @@ struct JournalView: View {
         .appCard()
     }
 
-    private func gratitudeRow(number: Int, text: String) -> some View {
-        HStack(alignment: .top, spacing: AppSpacing.xs) {
-            Text("\(number).")
-                .font(AppFont.bodySmall)
+    private func checkInRow(_ label: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(AppFont.caption1)
                 .foregroundStyle(AppColor.primary)
-                .frame(width: 20)
             Text(text)
                 .font(AppFont.bodyMedium)
                 .foregroundStyle(AppColor.textPrimary)
         }
     }
 
+    // MARK: - Streak
+
     private var streakBanner: some View {
         HStack {
             Image(systemName: "flame.fill")
                 .foregroundStyle(AppColor.warm)
-            Text("已连续记录 \(streakDays) 天")
+            Text("连续记录 \(streakDays) 天")
                 .font(AppFont.titleSmall)
                 .foregroundStyle(AppColor.textPrimary)
             Spacer()
@@ -142,7 +164,7 @@ struct JournalView: View {
         .padding(AppSpacing.md)
         .background(
             LinearGradient(
-                colors: [AppColor.warm.opacity(0.15), AppColor.secondary.opacity(0.1)],
+                colors: [AppColor.warm.opacity(0.12), AppColor.secondary.opacity(0.08)],
                 startPoint: .leading,
                 endPoint: .trailing
             )
@@ -150,45 +172,46 @@ struct JournalView: View {
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
-    private var pastEntries: some View {
+    // MARK: - Past Entries
+
+    private var pastSection: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
             Text("历史记录")
-                .font(AppFont.titleMedium)
+                .font(AppFont.titleSmall)
                 .foregroundStyle(AppColor.textPrimary)
 
-            ForEach(entries.filter { $0.hasContent }) { entry in
-                Button {
-                    selectedEntry = entry
-                    showingEditor = true
-                } label: {
-                    HStack {
-                        Text(entry.mood.emoji)
-                            .font(.title3)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.date.formatted(.dateTime.month().day().weekday(.wide)))
-                                .font(AppFont.bodyMedium)
-                                .foregroundStyle(AppColor.textPrimary)
-                            Text(entry.gratitude1.isEmpty ? "—" : entry.gratitude1)
-                                .font(AppFont.bodySmall)
-                                .foregroundStyle(AppColor.textSecondary)
-                                .lineLimit(1)
-                        }
-
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(AppColor.textTertiary)
+            ForEach(entries.filter { $0.hasContent && !Calendar.current.isDateInToday($0.date) }.prefix(10)) { entry in
+                HStack {
+                    Text(entry.mood.emoji)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(entry.date.formatted(.dateTime.month().day()))
+                            .font(AppFont.bodySmall)
+                            .foregroundStyle(AppColor.textPrimary)
+                        Text(entry.gratitude1.isEmpty ? entry.todayProgress : entry.gratitude1)
+                            .font(AppFont.caption1)
+                            .foregroundStyle(AppColor.textSecondary)
+                            .lineLimit(1)
                     }
-                    .appCard()
+                    Spacer()
                 }
-                .buttonStyle(.plain)
+                .padding(AppSpacing.sm)
+                .background(AppColor.bgSecondary)
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
             }
         }
     }
+
+    // MARK: - Helpers
+
+    private func getOrCreateTodayEntry() -> JournalEntry {
+        if let existing = todayEntry { return existing }
+        let entry = JournalEntry()
+        modelContext.insert(entry)
+        return entry
+    }
 }
 
-// MARK: - Journal Editor
+// MARK: - Journal Editor (simplified)
 
 struct JournalEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -202,15 +225,17 @@ struct JournalEditorSheet: View {
                 ScrollView {
                     VStack(spacing: AppSpacing.xl) {
                         // Mood
-                        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                            Text("今天心情如何？")
+                        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                            Text("今天的心情")
                                 .font(AppFont.titleSmall)
                                 .foregroundStyle(AppColor.textPrimary)
 
                             HStack(spacing: AppSpacing.sm) {
                                 ForEach(Mood.allCases, id: \.self) { mood in
                                     Button {
-                                        entry.mood = mood
+                                        withAnimation(AppAnimation.springSnappy) {
+                                            entry.mood = mood
+                                        }
                                     } label: {
                                         VStack(spacing: 4) {
                                             Text(mood.emoji)
@@ -222,9 +247,9 @@ struct JournalEditorSheet: View {
                                                 )
                                         }
                                         .frame(maxWidth: .infinity)
-                                        .padding(.vertical, AppSpacing.xs)
+                                        .padding(.vertical, AppSpacing.sm)
                                         .background(
-                                            entry.mood == mood ? Color(hex: mood.color).opacity(0.15) : AppColor.bgSecondary
+                                            entry.mood == mood ? Color(hex: mood.color).opacity(0.12) : AppColor.bgSecondary
                                         )
                                         .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
                                     }
@@ -233,58 +258,65 @@ struct JournalEditorSheet: View {
                             }
                         }
 
-                        // Gratitude
-                        VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                            Text("今天感恩的 3 件事")
-                                .font(AppFont.titleSmall)
-                                .foregroundStyle(AppColor.textPrimary)
-
-                            gratitudeField(number: 1, text: $entry.gratitude1)
-                            gratitudeField(number: 2, text: $entry.gratitude2)
-                            gratitudeField(number: 3, text: $entry.gratitude3)
-                        }
-
-                        // Progress
+                        // Gratitude (simplified to 1 field)
                         VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                            Text("今日目标进展")
+                            Text("今天感恩的事")
                                 .font(AppFont.titleSmall)
                                 .foregroundStyle(AppColor.textPrimary)
 
-                            TextField("今天在哪些目标上有进展？", text: $entry.todayProgress, axis: .vertical)
+                            TextField("今天有什么值得感恩的？", text: $entry.gratitude1, axis: .vertical)
                                 .font(AppFont.bodyMedium)
                                 .padding(AppSpacing.sm)
                                 .background(AppColor.bgSecondary)
                                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-                                .lineLimit(2...6)
+                                .lineLimit(2...5)
                         }
+
+                        // Progress toward goals
+                        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                            Text("目标进展")
+                                .font(AppFont.titleSmall)
+                                .foregroundStyle(AppColor.textPrimary)
+
+                            TextField("今天在愿景板上的目标有什么进展？", text: $entry.todayProgress, axis: .vertical)
+                                .font(AppFont.bodyMedium)
+                                .padding(AppSpacing.sm)
+                                .background(AppColor.bgSecondary)
+                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+                                .lineLimit(2...5)
+                        }
+
+                        // Optional: gratitude 2 & 3
+                        DisclosureGroup("记录更多") {
+                            VStack(spacing: AppSpacing.sm) {
+                                TextField("第二件感恩的事（可选）", text: $entry.gratitude2)
+                                    .font(AppFont.bodyMedium)
+                                    .padding(AppSpacing.sm)
+                                    .background(AppColor.bgSecondary)
+                                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+
+                                TextField("第三件感恩的事（可选）", text: $entry.gratitude3)
+                                    .font(AppFont.bodyMedium)
+                                    .padding(AppSpacing.sm)
+                                    .background(AppColor.bgSecondary)
+                                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+                            }
+                            .padding(.top, AppSpacing.xs)
+                        }
+                        .tint(AppColor.textSecondary)
                     }
                     .padding(AppSpacing.lg)
                 }
             }
-            .navigationTitle("显化日记")
+            .navigationTitle("今日记录")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") { dismiss() }
                         .fontWeight(.semibold)
-                        .tint(AppColor.primary)
+                        .foregroundStyle(AppColor.primary)
                 }
             }
-        }
-    }
-
-    private func gratitudeField(number: Int, text: Binding<String>) -> some View {
-        HStack(alignment: .top, spacing: AppSpacing.xs) {
-            Text("\(number).")
-                .font(AppFont.bodyMedium)
-                .foregroundStyle(AppColor.primary)
-                .frame(width: 24)
-                .padding(.top, AppSpacing.sm)
-            TextField("感恩...", text: text)
-                .font(AppFont.bodyMedium)
-                .padding(AppSpacing.sm)
-                .background(AppColor.bgSecondary)
-                .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
         }
     }
 }

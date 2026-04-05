@@ -33,6 +33,21 @@ final class VisionBoard {
         BuiltinTemplates.all.first { $0.id == templateId }
     }
 
+    /// Whether the current background is light (for text color adaptation)
+    var isBackgroundLight: Bool {
+        HexColor.isLight(backgroundColor)
+    }
+
+    /// Adaptive text color based on background brightness
+    var adaptiveTextColor: String {
+        isBackgroundLight ? "#2C2C2E" : "#FFFFFF"
+    }
+
+    /// Adaptive secondary text color
+    var adaptiveSecondaryTextColor: String {
+        isBackgroundLight ? "#6B6B6F" : "#AEAEB2"
+    }
+
     func photoData(forSlot slotId: Int) -> Data? {
         photoSlots.first { $0.slotId == slotId }?.imageData
     }

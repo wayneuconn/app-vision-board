@@ -13,7 +13,7 @@ struct MainTabView: View {
 
             JournalView()
                 .tabItem {
-                    Label("日记", systemImage: selectedTab == 1 ? "book.fill" : "book")
+                    Label("今日", systemImage: selectedTab == 1 ? "sun.max.fill" : "sun.max")
                 }
                 .tag(1)
 

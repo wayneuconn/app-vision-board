@@ -26,6 +26,23 @@ extension Color {
     }
 }
 
+// MARK: - Hex Luminance Helper
+
+enum HexColor {
+    /// Returns true if the hex color is "light" (luminance > 0.6)
+    static func isLight(_ hex: String) -> Bool {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let r = Double((int >> 16) & 0xFF) / 255.0
+        let g = Double((int >> 8) & 0xFF) / 255.0
+        let b = Double(int & 0xFF) / 255.0
+        // Relative luminance formula
+        let luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        return luminance > 0.55
+    }
+}
+
 enum AppColor {
     // Primary
     static let primary = Color(hex: "#C8A2C8")
