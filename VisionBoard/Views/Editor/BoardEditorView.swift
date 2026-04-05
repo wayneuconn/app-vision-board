@@ -3,113 +3,111 @@ import PhotosUI
 
 struct BoardEditorView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
     @Bindable var board: VisionBoard
-    @State private var selectedItem: BoardItem?
-    @State private var showingPhotoPicker = false
-    @State private var showingTextInput = false
-    @State private var showingStickerPicker = false
-    @State private var showingBoardSettings = false
+    @State private var editingTextSlotId: Int?
+    @State private var editingText = ""
+    @State private var activePhotoSlotId: Int?
     @State private var photoSelection: PhotosPickerItem?
-    // Track drag start position for correct delta calculation
-    @State private var dragStartX: Double = 0
-    @State private var dragStartY: Double = 0
+    @State private var showingColorPicker = false
+
+    private let gradients: [(String, String, String)] = [
+        ("#FDFBF9", "#E8D5E8", "浅紫"),
+        ("#F5DDE0", "#E8D5E8", "玫粉"),
+        ("#E8D5E8", "#93B7E3", "紫蓝"),
+        ("#A3D9C2", "#93B7E3", "蓝绿"),
+        ("#F7C59F", "#E8B5BC", "暖橘"),
+        ("#2C2C2E", "#4A3A5C", "暗夜"),
+        ("#F7F3EF", "#FDFBF9", "纯净"),
+        ("#E8B5BC", "#F7C59F", "落日"),
+    ]
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.black.ignoresSafeArea()
+                // Warm background instead of black
+                AppColor.bgSecondary.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    canvasView
-                        .padding(AppSpacing.md)
+                    // Canvas
+                    ScrollView {
+                        VStack(spacing: AppSpacing.lg) {
+                            // Board canvas
+                            boardCanvas
+                                .padding(.horizontal, AppSpacing.md)
+                                .padding(.top, AppSpacing.sm)
 
-                    editorToolbar
-                }
+                            // Color picker
+                            colorPicker
+                                .padding(.horizontal, AppSpacing.lg)
 
-                // Empty board hint overlay
-                if board.items.isEmpty {
-                    emptyBoardHint
+                            // Hint
+                            Text("点击照片区域添加图片，点击文字直接编辑")
+                                .font(AppFont.caption1)
+                                .foregroundStyle(AppColor.textTertiary)
+                                .padding(.bottom, AppSpacing.xl)
+                        }
+                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        showingBoardSettings = true
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .foregroundStyle(.white)
-                    }
+                    Button("取消") { dismiss() }
+                        .foregroundStyle(AppColor.textSecondary)
                 }
                 ToolbarItem(placement: .principal) {
                     Text(board.title)
-                        .foregroundStyle(.white)
                         .font(AppFont.titleSmall)
+                        .foregroundStyle(AppColor.textPrimary)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") {
+                    Button("保存") {
                         board.updatedAt = Date()
                         dismiss()
                     }
-                    .foregroundStyle(.white)
                     .fontWeight(.semibold)
+                    .foregroundStyle(AppColor.primary)
                 }
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .photosPicker(isPresented: $showingPhotoPicker, selection: $photoSelection, matching: .images)
+            .photosPicker(
+                isPresented: Binding(
+                    get: { activePhotoSlotId != nil },
+                    set: { if !$0 { activePhotoSlotId = nil } }
+                ),
+                selection: $photoSelection,
+                matching: .images
+            )
             .onChange(of: photoSelection) { _, newItem in
                 Task {
-                    if let data = try? await newItem?.loadTransferable(type: Data.self) {
-                        addImageItem(data: data)
+                    if let slotId = activePhotoSlotId,
+                       let data = try? await newItem?.loadTransferable(type: Data.self) {
+                        board.setPhoto(data: data, forSlot: slotId)
                     }
+                    activePhotoSlotId = nil
+                    photoSelection = nil
                 }
             }
-            .sheet(isPresented: $showingTextInput) {
-                TextInputSheet { text, color in
-                    addTextItem(text: text, color: color)
-                }
-            }
-            .sheet(isPresented: $showingStickerPicker) {
-                StickerPickerSheet { stickerName in
-                    addStickerItem(name: stickerName)
-                }
-            }
-            .sheet(isPresented: $showingBoardSettings) {
-                BoardSettingsSheet(board: board)
+            .alert("编辑文字", isPresented: Binding(
+                get: { editingTextSlotId != nil },
+                set: { if !$0 { saveText(); editingTextSlotId = nil } }
+            )) {
+                TextField("", text: $editingText)
+                Button("确定") { saveText(); editingTextSlotId = nil }
+                Button("取消", role: .cancel) { editingTextSlotId = nil }
             }
         }
-    }
-
-    // MARK: - Empty Board Hint
-
-    private var emptyBoardHint: some View {
-        VStack(spacing: AppSpacing.md) {
-            Image(systemName: "hand.tap.fill")
-                .font(.system(size: 36))
-                .foregroundStyle(AppColor.primary)
-
-            Text("点击下方工具栏开始创作")
-                .font(AppFont.bodyMedium)
-                .foregroundStyle(.white.opacity(0.8))
-
-            Text("添加照片、文字或贴纸来打造你的愿景板")
-                .font(AppFont.bodySmall)
-                .foregroundStyle(.white.opacity(0.5))
-        }
-        .allowsHitTesting(false) // Let taps pass through to toolbar
     }
 
     // MARK: - Canvas
 
-    private var canvasView: some View {
+    private var boardCanvas: some View {
         GeometryReader { geo in
-            // Canvas is always square for editing; export ratio chosen at share time
-            let side = min(geo.size.width, geo.size.height)
+            let side = geo.size.width
             let size = CGSize(width: side, height: side)
 
             ZStack {
-                RoundedRectangle(cornerRadius: AppRadius.lg)
+                // Background
+                RoundedRectangle(cornerRadius: AppRadius.xl)
                     .fill(
                         LinearGradient(
                             colors: [Color(hex: board.backgroundColor),
@@ -118,380 +116,156 @@ struct BoardEditorView: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                    .frame(width: size.width, height: size.height)
 
-                ForEach(board.items.sorted(by: { $0.zIndex < $1.zIndex })) { item in
-                    itemView(item: item, canvasSize: size)
+                if let template = board.template {
+                    // Photo slots
+                    ForEach(template.slots) { slot in
+                        photoSlotView(slot: slot, canvasSize: size)
+                    }
+
+                    // Text slots
+                    ForEach(template.textSlots) { slot in
+                        textSlotView(slot: slot, canvasSize: size)
+                    }
                 }
             }
-            .frame(width: size.width, height: size.height)
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onTapGesture {
-                // Deselect when tapping canvas background
-                withAnimation(AppAnimation.fast) {
-                    selectedItem = nil
-                }
-            }
+            .frame(width: side, height: side)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.xl))
+            .shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 8)
         }
+        .aspectRatio(1, contentMode: .fit)
     }
 
-    @ViewBuilder
-    private func itemView(item: BoardItem, canvasSize: CGSize) -> some View {
-        let isSelected = selectedItem?.id == item.id
+    // MARK: - Photo Slot
 
-        BoardItemView(item: item, canvasSize: canvasSize)
-            .overlay {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(AppColor.primary, lineWidth: 2)
-                        .frame(
-                            width: canvasSize.width * item.width + 4,
-                            height: canvasSize.height * item.height + 4
-                        )
-                        .position(
-                            x: canvasSize.width * item.x,
-                            y: canvasSize.height * item.y
-                        )
-                }
-            }
-            .onTapGesture {
-                withAnimation(AppAnimation.fast) {
-                    selectedItem = item
-                }
-            }
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        if dragStartX == 0 && dragStartY == 0 {
-                            // Store position at drag start
-                            dragStartX = item.x
-                            dragStartY = item.y
+    private func photoSlotView(slot: TemplateSlot, canvasSize: CGSize) -> some View {
+        let hasPhoto = board.photoData(forSlot: slot.id) != nil
+        let scaledRadius = slot.cornerRadius * (canvasSize.width / 400)
+
+        return Button {
+            activePhotoSlotId = slot.id
+        } label: {
+            Group {
+                if let data = board.photoData(forSlot: slot.id),
+                   let uiImage = UIImage(data: data) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    // Empty placeholder
+                    ZStack {
+                        Color.white.opacity(0.2)
+
+                        VStack(spacing: 6) {
+                            Image(systemName: "plus.circle")
+                                .font(.system(size: canvasSize.width * 0.05))
+                            Text(slot.placeholder)
+                                .font(.system(size: max(canvasSize.width * 0.028, 10)))
                         }
-                        // Use absolute translation from start, not incremental
-                        item.x = max(0.05, min(0.95, dragStartX + value.translation.width / canvasSize.width))
-                        item.y = max(0.05, min(0.95, dragStartY + value.translation.height / canvasSize.height))
-                        selectedItem = item
+                        .foregroundStyle(.white.opacity(0.7))
                     }
-                    .onEnded { _ in
-                        dragStartX = 0
-                        dragStartY = 0
-                    }
+                }
+            }
+            .frame(
+                width: canvasSize.width * slot.width,
+                height: canvasSize.height * slot.height
             )
-    }
-
-    // MARK: - Toolbar
-
-    private var editorToolbar: some View {
-        VStack(spacing: 0) {
-            if selectedItem != nil {
-                selectedItemActions
-            }
-
-            HStack(spacing: AppSpacing.xxl) {
-                toolButton(icon: "photo.fill", label: "图片") {
-                    showingPhotoPicker = true
-                }
-                toolButton(icon: "textformat", label: "文字") {
-                    showingTextInput = true
-                }
-                toolButton(icon: "star.fill", label: "贴纸") {
-                    showingStickerPicker = true
-                }
-                toolButton(icon: "paintpalette.fill", label: "背景") {
-                    cycleBackground()
-                }
-            }
-            .padding(.vertical, AppSpacing.lg)
-            .padding(.bottom, AppSpacing.md)
+            .clipShape(RoundedRectangle(cornerRadius: scaledRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: scaledRadius)
+                    .strokeBorder(
+                        hasPhoto ? .clear : .white.opacity(0.3),
+                        style: hasPhoto ? StrokeStyle() : StrokeStyle(lineWidth: 1.5, dash: [8, 5])
+                    )
+            )
         }
-        .background(.ultraThinMaterial)
+        .buttonStyle(.plain)
+        .position(
+            x: canvasSize.width * (slot.x + slot.width / 2),
+            y: canvasSize.height * (slot.y + slot.height / 2)
+        )
     }
 
-    private var selectedItemActions: some View {
-        HStack(spacing: AppSpacing.xl) {
-            Button {
-                if let item = selectedItem {
-                    item.zIndex += 1
-                }
-            } label: {
-                Label("上移", systemImage: "square.2.layers.3d.top.filled")
-                    .font(AppFont.caption1)
-            }
+    // MARK: - Text Slot
 
-            Button {
-                if let item = selectedItem {
-                    item.width = min(0.9, item.width * 1.15)
-                    item.height = min(0.9, item.height * 1.15)
-                }
-            } label: {
-                Label("放大", systemImage: "plus.magnifyingglass")
-                    .font(AppFont.caption1)
-            }
+    private func textSlotView(slot: TemplateTextSlot, canvasSize: CGSize) -> some View {
+        let content = board.textContent(forSlot: slot.id)
+        let displayText = content ?? slot.placeholder
+        let isPlaceholder = content == nil
+        let scaledFontSize = slot.fontSize * (canvasSize.width / 400)
 
-            Button {
-                if let item = selectedItem {
-                    item.width = max(0.05, item.width * 0.85)
-                    item.height = max(0.05, item.height * 0.85)
-                }
-            } label: {
-                Label("缩小", systemImage: "minus.magnifyingglass")
-                    .font(AppFont.caption1)
-            }
-
-            Button(role: .destructive) {
-                if let item = selectedItem {
-                    board.items.removeAll { $0.id == item.id }
-                    modelContext.delete(item)
-                    selectedItem = nil
-                }
-            } label: {
-                Label("删除", systemImage: "trash")
-                    .font(AppFont.caption1)
-            }
+        return Button {
+            editingText = content ?? ""
+            editingTextSlotId = slot.id
+        } label: {
+            Text(displayText)
+                .font(.system(size: scaledFontSize, weight: slot.fontWeight))
+                .foregroundStyle(
+                    Color(hex: slot.defaultColor)
+                        .opacity(isPlaceholder ? 0.5 : 1.0)
+                )
+                .multilineTextAlignment(slot.alignment)
+                .frame(width: canvasSize.width * slot.width)
+                .lineLimit(3)
         }
-        .foregroundStyle(.white)
-        .padding(.vertical, AppSpacing.sm)
+        .buttonStyle(.plain)
+        .position(
+            x: canvasSize.width * slot.x,
+            y: canvasSize.height * slot.y
+        )
     }
 
-    private func toolButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.title3)
-                Text(label)
-                    .font(AppFont.caption2)
-            }
-            .foregroundStyle(.white)
-        }
-    }
+    // MARK: - Color Picker
 
-    // MARK: - Actions
+    private var colorPicker: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Text("背景配色")
+                .font(AppFont.caption1)
+                .foregroundStyle(AppColor.textTertiary)
 
-    private func addImageItem(data: Data) {
-        let item = BoardItem(itemType: .image, zIndex: board.items.count)
-        item.imageData = data
-        board.items.append(item)
-        selectedItem = item
-    }
-
-    private func addTextItem(text: String, color: String) {
-        let item = BoardItem(itemType: .text, width: 0.6, height: 0.1, zIndex: board.items.count)
-        item.text = text
-        item.textColor = color
-        item.fontSize = 24
-        board.items.append(item)
-        selectedItem = item
-    }
-
-    private func addStickerItem(name: String) {
-        let item = BoardItem(itemType: .sticker, width: 0.15, height: 0.15, zIndex: board.items.count)
-        item.stickerName = name
-        item.fontSize = 40
-        item.textColor = "#C8A2C8"
-        board.items.append(item)
-        selectedItem = item
-    }
-
-    private func cycleBackground() {
-        let gradients: [(String, String)] = [
-            ("#FDFBF9", "#E8D5E8"),
-            ("#F5DDE0", "#E8D5E8"),
-            ("#E8D5E8", "#93B7E3"),
-            ("#A3D9C2", "#93B7E3"),
-            ("#F7C59F", "#E8B5BC"),
-            ("#2C2C2E", "#4A3A5C"),
-        ]
-        let current = gradients.firstIndex { $0.0 == board.backgroundColor } ?? -1
-        let next = (current + 1) % gradients.count
-        withAnimation(AppAnimation.standard) {
-            board.backgroundColor = gradients[next].0
-            board.backgroundGradientEnd = gradients[next].1
-        }
-    }
-}
-
-// MARK: - Board Settings Sheet (title, category)
-
-struct BoardSettingsSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var board: VisionBoard
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                AppColor.bgPrimary.ignoresSafeArea()
-
-                ScrollView {
-                    VStack(spacing: AppSpacing.xl) {
-                        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                            Text("名称")
-                                .font(AppFont.titleSmall)
-                                .foregroundStyle(AppColor.textPrimary)
-                            TextField("愿景板名称", text: $board.title)
-                                .font(AppFont.bodyLarge)
-                                .padding(AppSpacing.sm)
-                                .background(AppColor.bgSecondary)
-                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-                        }
-
-                        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                            Text("分类")
-                                .font(AppFont.titleSmall)
-                                .foregroundStyle(AppColor.textPrimary)
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: AppSpacing.xs) {
-                                ForEach(BoardCategory.allCases, id: \.self) { cat in
-                                    Button {
-                                        board.category = cat
-                                    } label: {
-                                        VStack(spacing: 4) {
-                                            Image(systemName: cat.icon)
-                                                .font(.title3)
-                                            Text(cat.rawValue)
-                                                .font(AppFont.caption1)
-                                        }
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, AppSpacing.sm)
-                                        .background(
-                                            board.category == cat ? cat.color.opacity(0.15) : AppColor.bgSecondary
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: AppSpacing.sm) {
+                    ForEach(gradients, id: \.2) { start, end, name in
+                        let isSelected = board.backgroundColor == start
+                        Button {
+                            withAnimation(AppAnimation.standard) {
+                                board.backgroundColor = start
+                                board.backgroundGradientEnd = end
+                            }
+                        } label: {
+                            VStack(spacing: 4) {
+                                Circle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [Color(hex: start), Color(hex: end)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
                                         )
-                                        .foregroundStyle(
-                                            board.category == cat ? cat.color : AppColor.textSecondary
-                                        )
-                                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: AppRadius.sm)
-                                                .stroke(board.category == cat ? cat.color : .clear, lineWidth: 1.5)
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
-                                }
+                                    )
+                                    .frame(width: 36, height: 36)
+                                    .overlay(
+                                        Circle().stroke(isSelected ? AppColor.primary : .clear, lineWidth: 2.5)
+                                            .padding(-2)
+                                    )
+                                    .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+
+                                Text(name)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(isSelected ? AppColor.primary : AppColor.textTertiary)
                             }
                         }
+                        .buttonStyle(.plain)
                     }
-                    .padding(AppSpacing.lg)
-                }
-            }
-            .navigationTitle("愿景板设置")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                        .fontWeight(.semibold)
-                        .tint(AppColor.primary)
                 }
             }
         }
     }
-}
 
-// MARK: - Text Input Sheet
+    // MARK: - Helpers
 
-struct TextInputSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    @State private var selectedColor = "#FFFFFF"
-    var onAdd: (String, String) -> Void
-
-    private let colors = ["#FFFFFF", "#2C2C2E", "#C8A2C8", "#E8B5BC",
-                          "#A3D9C2", "#F7C59F", "#93B7E3", "#D87B7B"]
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: AppSpacing.xl) {
-                TextField("写下你的目标或肯定语", text: $text, axis: .vertical)
-                    .font(AppFont.titleLarge)
-                    .foregroundStyle(Color(hex: selectedColor))
-                    .padding()
-                    .background(Color(hex: "#2C2C2E"))
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-                    .lineLimit(1...5)
-
-                HStack(spacing: AppSpacing.sm) {
-                    ForEach(colors, id: \.self) { color in
-                        Circle()
-                            .fill(Color(hex: color))
-                            .frame(width: 32, height: 32)
-                            .overlay(
-                                Circle()
-                                    .stroke(
-                                        selectedColor == color ? AppColor.primary : Color.gray.opacity(0.3),
-                                        lineWidth: selectedColor == color ? 2.5 : 1
-                                    )
-                                    .padding(-2)
-                            )
-                            .onTapGesture { selectedColor = color }
-                    }
-                }
-
-                Spacer()
-            }
-            .padding(AppSpacing.lg)
-            .navigationTitle("添加文字")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("添加") {
-                        onAdd(text, selectedColor)
-                        dismiss()
-                    }
-                    .disabled(text.isEmpty)
-                    .fontWeight(.semibold)
-                    .tint(AppColor.primary)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Sticker Picker
-
-struct StickerPickerSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    var onSelect: (String) -> Void
-
-    private let stickers = [
-        "star.fill", "heart.fill", "sparkles", "moon.fill", "sun.max.fill",
-        "flame.fill", "bolt.fill", "leaf.fill", "crown.fill", "trophy.fill",
-        "gift.fill", "airplane", "car.fill", "house.fill", "building.2.fill",
-        "graduationcap.fill", "book.fill", "pencil", "paintbrush.fill", "camera.fill",
-        "music.note", "heart.text.square.fill", "figure.run", "dumbbell.fill",
-        "cup.and.saucer.fill", "fork.knife", "cart.fill", "creditcard.fill",
-        "dollarsign.circle.fill", "chart.line.uptrend.xyaxis",
-        "person.2.fill", "hand.thumbsup.fill", "globe.americas.fill", "cloud.sun.fill",
-        "rainbow", "butterfly.fill", "pawprint.fill", "hare.fill",
-    ]
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: AppSpacing.md) {
-                    ForEach(stickers, id: \.self) { sticker in
-                        Button {
-                            onSelect(sticker)
-                            dismiss()
-                        } label: {
-                            Image(systemName: sticker)
-                                .font(.title2)
-                                .foregroundStyle(AppColor.primary)
-                                .frame(width: 50, height: 50)
-                                .background(AppColor.bgSecondary)
-                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-                        }
-                    }
-                }
-                .padding(AppSpacing.lg)
-            }
-            .navigationTitle("选择贴纸")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
-                }
-            }
+    private func saveText() {
+        if let slotId = editingTextSlotId, !editingText.isEmpty {
+            board.setText(content: editingText, forSlot: slotId)
         }
     }
 }

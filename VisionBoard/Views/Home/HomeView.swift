@@ -4,7 +4,7 @@ import SwiftData
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \VisionBoard.updatedAt, order: .reverse) private var boards: [VisionBoard]
-    @State private var showingNewBoard = false
+    @State private var showingTemplatePicker = false
     @State private var boardToEdit: VisionBoard?
 
     var body: some View {
@@ -22,12 +22,19 @@ struct HomeView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        createAndOpenBoard()
+                        showingTemplatePicker = true
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .font(.title3)
                             .foregroundStyle(AppColor.primary)
                     }
+                }
+            }
+            .sheet(isPresented: $showingTemplatePicker) {
+                TemplatePickerView { templateId in
+                    let board = VisionBoard(templateId: templateId)
+                    modelContext.insert(board)
+                    boardToEdit = board
                 }
             }
             .fullScreenCover(item: $boardToEdit) { board in
@@ -36,32 +43,39 @@ struct HomeView: View {
         }
     }
 
-    private func createAndOpenBoard() {
-        let board = VisionBoard()
-        modelContext.insert(board)
-        boardToEdit = board
-    }
-
     private var emptyState: some View {
-        VStack(spacing: AppSpacing.lg) {
+        VStack(spacing: AppSpacing.xl) {
+            Spacer()
+
             Image(systemName: "sparkles")
-                .font(.system(size: 60))
-                .foregroundStyle(AppColor.primary.opacity(0.6))
+                .font(.system(size: 56))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [AppColor.primary, AppColor.warm],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .symbolEffect(.pulse, options: .repeating)
 
-            Text("开始创建你的愿景板")
-                .font(AppFont.titleLarge)
-                .foregroundStyle(AppColor.textPrimary)
+            VStack(spacing: AppSpacing.xs) {
+                Text("创建你的愿景板")
+                    .font(AppFont.titleLarge)
+                    .foregroundStyle(AppColor.textPrimary)
 
-            Text("把梦想可视化，让目标每天都看得见")
-                .font(AppFont.bodyMedium)
-                .foregroundStyle(AppColor.textSecondary)
+                Text("选一个喜欢的模板，填入你的梦想")
+                    .font(AppFont.bodyMedium)
+                    .foregroundStyle(AppColor.textSecondary)
+            }
 
-            Button("创建第一个愿景板") {
-                createAndOpenBoard()
+            Button("选择模板开始") {
+                showingTemplatePicker = true
             }
             .buttonStyle(PrimaryButtonStyle())
-            .padding(.horizontal, AppSpacing.xxxl)
-            .padding(.top, AppSpacing.sm)
+            .padding(.horizontal, 60)
+
+            Spacer()
+            Spacer()
         }
         .padding()
     }
@@ -84,9 +98,8 @@ struct HomeView: View {
                         } label: {
                             Label("编辑", systemImage: "pencil")
                         }
-
                         Button(role: .destructive) {
-                            modelContext.delete(board)
+                            withAnimation { modelContext.delete(board) }
                         } label: {
                             Label("删除", systemImage: "trash")
                         }
@@ -94,42 +107,22 @@ struct HomeView: View {
                 }
             }
             .padding(.horizontal, AppSpacing.lg)
-            .padding(.top, AppSpacing.sm)
+            .padding(.top, AppSpacing.xs)
         }
     }
 }
 
-// MARK: - Board Card
+// MARK: - Board Card (shows template-rendered preview)
 
 struct BoardCardView: View {
     let board: VisionBoard
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            // Preview — always square in list
-            RoundedRectangle(cornerRadius: AppRadius.sm)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(hex: board.backgroundColor),
-                                 Color(hex: board.backgroundGradientEnd ?? board.backgroundColor)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+            // Render actual template preview
+            TemplateBoardRenderer(board: board)
                 .aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    if board.items.isEmpty {
-                        VStack(spacing: 4) {
-                            Image(systemName: board.category.icon)
-                                .font(.title2)
-                            Text(board.category.rawValue)
-                                .font(AppFont.caption1)
-                        }
-                        .foregroundStyle(.white.opacity(0.8))
-                    } else {
-                        boardPreview
-                    }
-                }
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
 
             Text(board.title)
                 .font(AppFont.titleSmall)
@@ -137,42 +130,17 @@ struct BoardCardView: View {
                 .lineLimit(1)
 
             HStack(spacing: AppSpacing.xxs) {
-                Image(systemName: board.category.icon)
-                    .font(.caption)
-                Text(board.category.rawValue)
-                    .font(AppFont.caption1)
+                Text(board.template?.name ?? "")
+                    .font(AppFont.caption2)
                 Spacer()
                 Text(board.updatedAt.formatted(.relative(presentation: .named)))
                     .font(AppFont.caption2)
             }
             .foregroundStyle(AppColor.textTertiary)
         }
-        .appCard()
-    }
-
-    @ViewBuilder
-    private var boardPreview: some View {
-        let imageItems = board.items.filter { $0.itemType == .image && $0.imageData != nil }.prefix(4)
-        if !imageItems.isEmpty {
-            GeometryReader { geo in
-                ForEach(Array(imageItems.enumerated()), id: \.element.id) { _, item in
-                    if let data = item.imageData, let uiImage = UIImage(data: data) {
-                        Image(uiImage: uiImage)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(
-                                width: geo.size.width * item.width,
-                                height: geo.size.height * item.height
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                            .position(
-                                x: geo.size.width * item.x,
-                                y: geo.size.height * item.y
-                            )
-                    }
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-        }
+        .padding(AppSpacing.sm)
+        .background(AppColor.bgElevated)
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 2)
     }
 }

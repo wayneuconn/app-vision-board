@@ -9,7 +9,8 @@ struct VisionBoardApp: App {
         }
         .modelContainer(for: [
             VisionBoard.self,
-            BoardItem.self,
+            PhotoSlotData.self,
+            TextSlotData.self,
             Goal.self,
             JournalEntry.self
         ])

@@ -2,21 +2,16 @@ import SwiftUI
 
 struct ExportService {
     @MainActor
-    static func renderBoardImage(board: VisionBoard, size: CGSize) -> UIImage? {
+    static func shareBoard(_ board: VisionBoard, size: CGSize, from view: UIView?) {
         let renderer = ImageRenderer(
-            content: ExportableBoardView(board: board)
+            content: TemplateBoardRenderer(board: board)
                 .frame(width: size.width, height: size.height)
         )
         renderer.scale = 3.0
-        return renderer.uiImage
-    }
-
-    @MainActor
-    static func shareBoard(_ board: VisionBoard, size: CGSize, from view: UIView?) {
-        guard let image = renderBoardImage(board: board, size: size) else { return }
+        guard let image = renderer.uiImage else { return }
 
         let isPro = StoreKitManager.shared.isPro
-        let finalImage = isPro ? image : addWatermark(to: image, appName: "愿景板")
+        let finalImage = isPro ? image : addWatermark(to: image)
 
         let activityVC = UIActivityViewController(
             activityItems: [finalImage],
@@ -34,45 +29,21 @@ struct ExportService {
         }
     }
 
-    static func addWatermark(to image: UIImage, appName: String) -> UIImage {
+    static func addWatermark(to image: UIImage) -> UIImage {
         let renderer = UIGraphicsImageRenderer(size: image.size)
         return renderer.image { _ in
             image.draw(at: .zero)
-
-            let text = "用 \(appName) 制作"
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: image.size.width * 0.025, weight: .medium),
-                .foregroundColor: UIColor.white.withAlphaComponent(0.6)
+            let text = "用 愿景板 App 制作"
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: image.size.width * 0.022, weight: .medium),
+                .foregroundColor: UIColor.white.withAlphaComponent(0.55)
             ]
-
-            let textSize = (text as NSString).size(withAttributes: attributes)
+            let textSize = (text as NSString).size(withAttributes: attrs)
             let point = CGPoint(
                 x: image.size.width - textSize.width - image.size.width * 0.03,
                 y: image.size.height - textSize.height - image.size.width * 0.03
             )
-            (text as NSString).draw(at: point, withAttributes: attributes)
-        }
-    }
-}
-
-struct ExportableBoardView: View {
-    let board: VisionBoard
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                LinearGradient(
-                    colors: [Color(hex: board.backgroundColor),
-                             Color(hex: board.backgroundGradientEnd ?? board.backgroundColor)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-
-                // Render items — use square mapping (items stored in 0-1 normalized coords)
-                ForEach(board.items.sorted(by: { $0.zIndex < $1.zIndex })) { item in
-                    BoardItemView(item: item, canvasSize: geo.size)
-                }
-            }
+            (text as NSString).draw(at: point, withAttributes: attrs)
         }
     }
 }

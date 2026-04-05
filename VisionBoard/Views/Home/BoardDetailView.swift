@@ -5,8 +5,8 @@ struct BoardDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var board: VisionBoard
     @State private var showingEditor = false
-    @State private var showingGoalSheet = false
     @State private var showingShareOptions = false
+    @State private var showingGoalSheet = false
 
     var body: some View {
         ZStack {
@@ -14,7 +14,12 @@ struct BoardDetailView: View {
 
             ScrollView {
                 VStack(spacing: AppSpacing.xl) {
-                    boardCanvas
+                    // Board rendered preview
+                    TemplateBoardRenderer(board: board)
+                        .aspectRatio(1, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.xl))
+                        .shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 8)
+                        .padding(.horizontal, AppSpacing.lg)
                         .onTapGesture { showingEditor = true }
 
                     // Actions
@@ -35,6 +40,7 @@ struct BoardDetailView: View {
                     }
                     .padding(.horizontal, AppSpacing.lg)
 
+                    // Goals
                     goalsSection
                 }
                 .padding(.bottom, AppSpacing.xxxl)
@@ -45,14 +51,10 @@ struct BoardDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button {
-                        showingEditor = true
-                    } label: {
-                        Label("编辑愿景板", systemImage: "pencil")
+                    Button { showingEditor = true } label: {
+                        Label("编辑", systemImage: "pencil")
                     }
-                    Button {
-                        showingShareOptions = true
-                    } label: {
+                    Button { showingShareOptions = true } label: {
                         Label("分享", systemImage: "square.and.arrow.up")
                     }
                     Divider()
@@ -73,66 +75,15 @@ struct BoardDetailView: View {
             AddGoalSheet(board: board)
         }
         .confirmationDialog("选择分享格式", isPresented: $showingShareOptions) {
-            Button("方形 (1:1) — 适合小红书") {
-                shareBoard(ratio: .square)
+            Button("方形 1:1（小红书）") {
+                ExportService.shareBoard(board, size: CGSize(width: 1080, height: 1080), from: nil)
             }
-            Button("全屏 (9:16) — 适合壁纸/抖音") {
-                shareBoard(ratio: .portrait)
+            Button("竖屏 9:16（壁纸/抖音）") {
+                ExportService.shareBoard(board, size: CGSize(width: 1080, height: 1920), from: nil)
             }
             Button("取消", role: .cancel) {}
         }
     }
-
-    private func shareBoard(ratio: AspectRatio) {
-        let size: CGSize
-        switch ratio {
-        case .square: size = CGSize(width: 1080, height: 1080)
-        case .portrait: size = CGSize(width: 1080, height: 1920)
-        }
-        ExportService.shareBoard(board, size: size, from: nil)
-    }
-
-    // Canvas — always square in detail view
-    private var boardCanvas: some View {
-        GeometryReader { geo in
-            let width = geo.size.width - AppSpacing.lg * 2
-            let size = CGSize(width: width, height: width) // Always square
-
-            ZStack {
-                RoundedRectangle(cornerRadius: AppRadius.lg)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: board.backgroundColor),
-                                     Color(hex: board.backgroundGradientEnd ?? board.backgroundColor)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-
-                ForEach(board.items.sorted(by: { $0.zIndex < $1.zIndex })) { item in
-                    BoardItemView(item: item, canvasSize: size)
-                }
-
-                if board.items.isEmpty {
-                    VStack(spacing: AppSpacing.sm) {
-                        Image(systemName: "plus.circle.dashed")
-                            .font(.system(size: 40))
-                        Text("点击开始编辑")
-                            .font(AppFont.bodyMedium)
-                    }
-                    .foregroundStyle(.white.opacity(0.6))
-                }
-            }
-            .frame(width: width, height: width)
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-            .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: 4)
-            .frame(maxWidth: .infinity)
-        }
-        .frame(height: UIScreen.main.bounds.width - AppSpacing.lg * 2)
-        .padding(.horizontal, AppSpacing.lg)
-    }
-
-    // MARK: - Goals
 
     private var goalsSection: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
@@ -141,9 +92,7 @@ struct BoardDetailView: View {
                     .font(AppFont.titleMedium)
                     .foregroundStyle(AppColor.textPrimary)
                 Spacer()
-                Button {
-                    showingGoalSheet = true
-                } label: {
+                Button { showingGoalSheet = true } label: {
                     Image(systemName: "plus.circle.fill")
                         .foregroundStyle(AppColor.primary)
                 }
@@ -161,56 +110,6 @@ struct BoardDetailView: View {
                 }
                 .padding(.horizontal, AppSpacing.lg)
             }
-        }
-    }
-}
-
-// MARK: - Board Item View
-
-struct BoardItemView: View {
-    let item: BoardItem
-    let canvasSize: CGSize
-
-    var body: some View {
-        Group {
-            switch item.itemType {
-            case .image:
-                if let data = item.imageData, let uiImage = UIImage(data: data) {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFill()
-                }
-            case .text:
-                Text(item.text ?? "")
-                    .font(.system(size: item.fontSize, weight: fontWeight))
-                    .foregroundStyle(Color(hex: item.textColor))
-                    .multilineTextAlignment(.center)
-            case .sticker:
-                if let name = item.stickerName {
-                    Image(systemName: name)
-                        .font(.system(size: item.fontSize))
-                        .foregroundStyle(Color(hex: item.textColor))
-                }
-            }
-        }
-        .frame(
-            width: canvasSize.width * item.width,
-            height: canvasSize.height * item.height
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .rotationEffect(.degrees(item.rotation))
-        .position(
-            x: canvasSize.width * item.x,
-            y: canvasSize.height * item.y
-        )
-    }
-
-    private var fontWeight: Font.Weight {
-        switch item.fontWeight {
-        case "bold": return .bold
-        case "semibold": return .semibold
-        case "medium": return .medium
-        default: return .regular
         }
     }
 }
@@ -233,21 +132,17 @@ struct GoalRowView: View {
                         .font(.title3)
                         .foregroundStyle(goal.isCompleted ? AppColor.success : AppColor.textTertiary)
                 }
-
                 Text(goal.title)
                     .font(AppFont.bodyLarge)
                     .foregroundStyle(goal.isCompleted ? AppColor.textTertiary : AppColor.textPrimary)
                     .strikethrough(goal.isCompleted)
-
                 Spacer()
-
                 if let target = goal.targetValue {
                     Text("\(Int(goal.currentValue))/\(Int(target))")
                         .font(AppFont.caption1)
                         .foregroundStyle(AppColor.textSecondary)
                 }
             }
-
             if goal.targetValue != nil {
                 ProgressView(value: goal.progress)
                     .tint(AppColor.primary)
@@ -288,7 +183,6 @@ struct AddGoalSheet: View {
                             .background(AppColor.bgSecondary)
                             .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
                     }
-
                     Spacer()
                 }
                 .padding(AppSpacing.lg)
@@ -301,11 +195,7 @@ struct AddGoalSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("添加") {
-                        let goal = Goal(
-                            title: title,
-                            targetValue: hasTarget ? Double(targetValue) : nil,
-                            sortOrder: board.goals.count
-                        )
+                        let goal = Goal(title: title, targetValue: hasTarget ? Double(targetValue) : nil, sortOrder: board.goals.count)
                         board.goals.append(goal)
                         dismiss()
                     }
